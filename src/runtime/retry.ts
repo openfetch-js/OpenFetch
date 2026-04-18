@@ -8,6 +8,11 @@ import type {
 } from "../domain/types.js";
 import { buildURL } from "../shared/buildURL.js";
 import {
+  classifyRetryReason,
+  emitOpenFetchDebug,
+  setOpenFetchDebugAttempt,
+} from "../shared/openFetchDebug.js";
+import {
   ensureIdempotencyKeyHeader,
   generateIdempotencyKey,
   hasIdempotencyKeyHeader,
@@ -240,6 +245,11 @@ export function createRetryMiddleware(
       attempt += 1;
       throwIfExternalAborted(ctx);
       assertWithinRetryDeadline(ctx, deadlineMono);
+      emitOpenFetchDebug(ctx.request, "attempt_start", {
+        attempt,
+        maxAttempts: ro.maxAttempts,
+      });
+      setOpenFetchDebugAttempt(ctx.request, attempt);
       try {
         if (ro.timeoutPerAttemptMs != null && ro.timeoutPerAttemptMs > 0) {
           ctx.request.timeout = ro.timeoutPerAttemptMs;
@@ -313,6 +323,18 @@ export function createRetryMiddleware(
                 delay,
                 Math.max(0, deadlineMono - monotonicNowMs())
               );
+        if (err instanceof OpenFetchForceRetry) {
+          emitOpenFetchDebug(ctx.request, "hook_after_response", {
+            hook: "onAfterResponse",
+            action: "force_retry",
+          });
+        }
+        emitOpenFetchDebug(ctx.request, "retry", {
+          failedAttempt: attempt,
+          nextAttempt: attempt + 1,
+          reason: classifyRetryReason(err),
+          delayMs: sleepMs,
+        });
         await sleepBackoff(sleepMs, ctx);
       }
     }

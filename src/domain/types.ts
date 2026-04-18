@@ -11,6 +11,12 @@ export type TransformRequest = (
 
 export type TransformResponse<T = unknown> = (data: unknown) => T | Promise<T>;
 
+/** Structured record emitted when {@link OpenFetchConfig.debug} is enabled. */
+export type OpenFetchDebugEvent = {
+  stage: string;
+  timestamp: number;
+} & Record<string, unknown>;
+
 /** Per-request overrides for the memory cache middleware. */
 export type OpenFetchMemoryCacheRequestOptions = {
   ttlMs?: number;
@@ -82,6 +88,14 @@ export type OpenFetchConfig = {
    * Default false — return full `OpenFetchResponse`.
    */
   unwrapResponse?: boolean;
+  /**
+   * DevTools-style lifecycle logging. `true` / `"verbose"` emit structured events for the full
+   * pipeline (merge, fetch, retries, parse, schema). `"basic"` logs `request`, final `response`,
+   * and `error` only. Events go to {@link OpenFetchConfig.logger} or `console.debug`.
+   */
+  debug?: boolean | "basic" | "verbose";
+  /** Custom sink for structured {@link OpenFetchDebugEvent} records when `debug` is enabled. */
+  logger?: (log: OpenFetchDebugEvent) => void;
 } & Partial<
   Pick<
     RequestInit,

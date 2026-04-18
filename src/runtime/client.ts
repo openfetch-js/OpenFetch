@@ -1,3 +1,4 @@
+import { OpenFetchError } from "../domain/error.js";
 import { InterceptorManager } from "../domain/interceptors.js";
 import type {
   OpenFetchClient,
@@ -5,7 +6,16 @@ import type {
   OpenFetchResponse,
   RequestConfig,
 } from "../domain/types.js";
+import { buildURL } from "../shared/buildURL.js";
 import { mergeConfig } from "../shared/mergeConfig.js";
+import {
+  emitOpenFetchDebug,
+  headersForDebugLog,
+  monotonicNowMs,
+  redactUrlForDebug,
+  safeMergedConfigMeta,
+  simplifyStack,
+} from "../shared/openFetchDebug.js";
 import { openFetchConfigFromRequest } from "../shared/requestFromNative.js";
 import { dispatch } from "../transport/dispatch.js";
 import { applyMiddlewares } from "./middleware.js";
@@ -54,42 +64,91 @@ export function createClient(initialDefaults: OpenFetchConfig = {}): OpenFetchCl
       merged = mergeConfig(defaults, urlOrConfig);
     }
 
+    emitOpenFetchDebug(merged, "config", safeMergedConfigMeta(merged));
+
     for (const fn of merged.init ?? []) {
       fn(merged);
     }
+
+    emitOpenFetchDebug(merged, "init", {
+      hooksRun: merged.init?.length ?? 0,
+    });
 
     if (merged.url === undefined || merged.url === "") {
       throw new Error("openfetch: `url` is required");
     }
 
-    const afterRequest = await requestInterceptors.runRequest(merged);
+    const t0 = monotonicNowMs();
+    let cfgForLog: OpenFetchConfig = merged;
 
-    const ctx = {
-      url: afterRequest.url as string | URL,
-      request: afterRequest,
-      response: null as OpenFetchResponse | null,
-      error: null as unknown,
-    };
+    try {
+      const afterRequest = await requestInterceptors.runRequest(merged);
+      cfgForLog = afterRequest;
 
-    await applyMiddlewares(ctx, async () => {
-      const cfg = ctx.request as OpenFetchConfig & {
-        url: string | URL;
+      const resolvedUrl = buildURL(
+        afterRequest.url as string | URL,
+        afterRequest
+      );
+      const hdrs = afterRequest.headers
+        ? headersForDebugLog(
+            Object.fromEntries(
+              Object.entries(afterRequest.headers).map(([k, v]) => [
+                k.toLowerCase(),
+                v,
+              ])
+            )
+          )
+        : undefined;
+      emitOpenFetchDebug(afterRequest, "request", {
+        method: (afterRequest.method ?? "GET").toUpperCase(),
+        url: redactUrlForDebug(resolvedUrl),
+        ...(hdrs ? { headers: hdrs } : {}),
+      });
+
+      const ctx = {
+        url: afterRequest.url as string | URL,
+        request: afterRequest,
+        response: null as OpenFetchResponse | null,
+        error: null as unknown,
       };
-      ctx.response = await dispatch(cfg);
-    });
 
-    // Stale ctx.error can remain from an earlier failed `next()` inside retry middleware; prefer a successful response.
-    if (ctx.error != null && ctx.response == null) throw ctx.error;
+      await applyMiddlewares(ctx, async () => {
+        const cfg = ctx.request as OpenFetchConfig & {
+          url: string | URL;
+        };
+        ctx.response = await dispatch(cfg);
+      });
 
-    let response = ctx.response as OpenFetchResponse<T>;
-    response = (await responseInterceptors.runResponse(
-      response
-    )) as OpenFetchResponse<T>;
+      // Stale ctx.error can remain from an earlier failed `next()` inside retry middleware; prefer a successful response.
+      if (ctx.error != null && ctx.response == null) throw ctx.error;
 
-    if (afterRequest.unwrapResponse) {
-      return response.data;
+      let response = ctx.response as OpenFetchResponse<T>;
+      response = (await responseInterceptors.runResponse(
+        response
+      )) as OpenFetchResponse<T>;
+
+      const durationMs = Math.round(monotonicNowMs() - t0);
+      emitOpenFetchDebug(cfgForLog, "response", {
+        status: response.status,
+        statusText: response.statusText,
+        durationMs,
+      });
+
+      if (afterRequest.unwrapResponse) {
+        return response.data;
+      }
+      return response;
+    } catch (e) {
+      const durationMs = Math.round(monotonicNowMs() - t0);
+      emitOpenFetchDebug(cfgForLog, "error", {
+        name: e instanceof Error ? e.name : "Error",
+        message: e instanceof Error ? e.message : String(e),
+        code: e instanceof OpenFetchError ? e.code : undefined,
+        stack: e instanceof Error ? simplifyStack(e.stack) : undefined,
+        durationMs,
+      });
+      throw e;
     }
-    return response;
   }
 
   const client: OpenFetchClient = {

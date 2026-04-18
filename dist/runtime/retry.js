@@ -1,6 +1,7 @@
 import { OpenFetchError } from "../domain/error.js";
 import { OpenFetchForceRetry } from "../domain/forceRetry.js";
 import { buildURL } from "../shared/buildURL.js";
+import { classifyRetryReason, emitOpenFetchDebug, setOpenFetchDebugAttempt, } from "../shared/openFetchDebug.js";
 import { ensureIdempotencyKeyHeader, generateIdempotencyKey, hasIdempotencyKeyHeader, } from "../shared/idempotencyKey.js";
 import { mergeAbortSignals } from "../shared/mergeAbortSignals.js";
 const DEFAULT_RETRY_ON_STATUS = [408, 429, 500, 502, 503, 504];
@@ -193,6 +194,11 @@ export function createRetryMiddleware(factoryDefaults) {
             attempt += 1;
             throwIfExternalAborted(ctx);
             assertWithinRetryDeadline(ctx, deadlineMono);
+            emitOpenFetchDebug(ctx.request, "attempt_start", {
+                attempt,
+                maxAttempts: ro.maxAttempts,
+            });
+            setOpenFetchDebugAttempt(ctx.request, attempt);
             try {
                 if (ro.timeoutPerAttemptMs != null && ro.timeoutPerAttemptMs > 0) {
                     ctx.request.timeout = ro.timeoutPerAttemptMs;
@@ -259,6 +265,18 @@ export function createRetryMiddleware(factoryDefaults) {
                 const sleepMs = deadlineMono == null
                     ? delay
                     : Math.min(delay, Math.max(0, deadlineMono - monotonicNowMs()));
+                if (err instanceof OpenFetchForceRetry) {
+                    emitOpenFetchDebug(ctx.request, "hook_after_response", {
+                        hook: "onAfterResponse",
+                        action: "force_retry",
+                    });
+                }
+                emitOpenFetchDebug(ctx.request, "retry", {
+                    failedAttempt: attempt,
+                    nextAttempt: attempt + 1,
+                    reason: classifyRetryReason(err),
+                    delayMs: sleepMs,
+                });
                 await sleepBackoff(sleepMs, ctx);
             }
         }

@@ -19,5 +19,5 @@ export { cloneResponse } from "./shared/cloneResponse.js";
 export { SchemaValidationError, isSchemaValidationError, } from "./domain/schemaValidationError.js";
 export { OpenFetchForceRetry, isOpenFetchForceRetry, } from "./domain/forceRetry.js";
 export type { StandardSchemaV1, StandardSchemaV1InferOutput, StandardSchemaV1Issue, StandardSchemaV1Options, StandardSchemaV1Result, StandardSchemaV1SuccessResult, StandardSchemaV1FailureResult, StandardSchemaV1Types, } from "./domain/standardSchema.js";
-export type { Middleware, NextFn, OpenFetchClient, OpenFetchConfig, OpenFetchContext, OpenFetchInterceptors, OpenFetchMemoryCacheRequestOptions, OpenFetchResponse, OpenFetchRetryOptions, RequestConfig, TransformRequest, TransformResponse, } from "./types/index.js";
+export type { Middleware, NextFn, OpenFetchClient, OpenFetchConfig, OpenFetchContext, OpenFetchDebugEvent, OpenFetchInterceptors, OpenFetchMemoryCacheRequestOptions, OpenFetchResponse, OpenFetchRetryOptions, RequestConfig, TransformRequest, TransformResponse, } from "./types/index.js";
 //# sourceMappingURL=index.d.ts.map

@@ -5,6 +5,14 @@ import { validateJsonWithStandardSchema } from "../domain/validateJsonSchema.js"
 import { assertSafeHttpUrl } from "../shared/assertSafeHttpUrl.js";
 import { buildURL } from "../shared/buildURL.js";
 import { encodeBasicAuth } from "../shared/basicAuth.js";
+import {
+  clearOpenFetchDebugAttempt,
+  emitOpenFetchDebug,
+  getOpenFetchDebugAttempt,
+  headersForDebugLog,
+  monotonicNowMs,
+  redactUrlForDebug,
+} from "../shared/openFetchDebug.js";
 import { mergeAbortSignals } from "../shared/mergeAbortSignals.js";
 import { headersToRecord } from "../shared/responseHeaders.js";
 
@@ -151,7 +159,16 @@ export async function dispatch(
 
   const signal = mergeAbortSignals(config.signal ?? undefined, controller);
 
+  const attempt = getOpenFetchDebugAttempt(config);
+  emitOpenFetchDebug(config, "fetch", {
+    attempt,
+    method: (config.method ?? "GET").toUpperCase(),
+    url: redactUrlForDebug(urlString),
+    headers: headersForDebugLog(headers),
+  });
+
   try {
+    const tFetch = monotonicNowMs();
     const res = await fetch(urlString, {
       method: (config.method ?? "GET").toUpperCase(),
       headers,
@@ -165,6 +182,16 @@ export async function dispatch(
       redirect: config.redirect,
       referrer: config.referrer,
       referrerPolicy: config.referrerPolicy,
+    });
+
+    const fetchDurationMs = Math.round(monotonicNowMs() - tFetch);
+    const contentLength = res.headers.get("content-length");
+    emitOpenFetchDebug(config, "fetch_complete", {
+      attempt,
+      status: res.status,
+      statusText: res.statusText,
+      durationMs: fetchDurationMs,
+      contentLength: contentLength ?? undefined,
     });
 
     const headerRecord = headersToRecord(res.headers);
@@ -185,13 +212,28 @@ export async function dispatch(
           request: { url: urlString },
         });
       }
+      emitOpenFetchDebug(config, "parse", {
+        attempt,
+        skipped: true,
+        reason: "rawResponse",
+      });
       return openResponse;
     }
 
     let parsed: unknown;
     try {
       parsed = await parseBody(res, config.responseType);
+      emitOpenFetchDebug(config, "parse", {
+        attempt,
+        ok: true,
+        responseType: config.responseType ?? "auto",
+      });
     } catch {
+      emitOpenFetchDebug(config, "parse", {
+        attempt,
+        ok: false,
+        responseType: config.responseType ?? "auto",
+      });
       throw new OpenFetchError("Response could not be parsed", {
         config,
         code: "ERR_PARSE",
@@ -218,7 +260,22 @@ export async function dispatch(
 
     let outData: unknown = openResponse.data;
     if (config.jsonSchema != null) {
-      outData = await validateJsonWithStandardSchema(outData, config.jsonSchema);
+      try {
+        outData = await validateJsonWithStandardSchema(
+          outData,
+          config.jsonSchema
+        );
+        emitOpenFetchDebug(config, "schema", { attempt, ok: true });
+      } catch (e) {
+        if (e instanceof SchemaValidationError) {
+          emitOpenFetchDebug(config, "schema", {
+            attempt,
+            ok: false,
+            issueCount: e.issues.length,
+          });
+        }
+        throw e;
+      }
     }
 
     for (const tr of config.transformResponse ?? []) {
@@ -266,6 +323,7 @@ export async function dispatch(
       request: { url: urlString },
     });
   } finally {
+    clearOpenFetchDebugAttempt(config);
     // Clear per-attempt timer so it cannot fire after completion (avoids dangling timers / leaks).
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId);

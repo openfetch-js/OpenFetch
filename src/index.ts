@@ -90,6 +90,7 @@ export type {
   OpenFetchClient,
   OpenFetchConfig,
   OpenFetchContext,
+  OpenFetchDebugEvent,
   OpenFetchInterceptors,
   OpenFetchMemoryCacheRequestOptions,
   OpenFetchResponse,
