@@ -25,6 +25,19 @@ export type OpenFetchMemoryCacheRequestOptions = {
   skip?: boolean;
 };
 
+/** Byte progress for {@link OpenFetchConfig.onUploadProgress} / {@link OpenFetchConfig.onDownloadProgress}. */
+export type OpenFetchProgressEvent = {
+  /** Bytes read from the response body or consumed from the request body so far. */
+  transferredBytes: number;
+  /**
+   * Known total when available (`Content-Length` for downloads; measured body size for common upload types).
+   * `null` when unknown (e.g. chunked transfer, user-provided `ReadableStream` upload without length).
+   */
+  totalBytes: number | null;
+  /** 0–100 when `totalBytes` is a positive number; otherwise `null` (unknown total). */
+  percent: number | null;
+};
+
 export type OpenFetchConfig = {
   url?: string | URL;
   baseURL?: string;
@@ -96,6 +109,28 @@ export type OpenFetchConfig = {
   debug?: boolean | "basic" | "verbose";
   /** Custom sink for structured {@link OpenFetchDebugEvent} records when `debug` is enabled. */
   logger?: (log: OpenFetchDebugEvent) => void;
+  /**
+   * Called as the **request** body is read by `fetch` (bytes leaving the client).
+   * Best-effort: `FormData` and other bodies that cannot be wrapped as a counting stream are unchanged — no events.
+   */
+  onUploadProgress?: (event: OpenFetchProgressEvent) => void;
+  /**
+   * Called as the **response** body is read. `totalBytes` / `percent` use `Content-Length` when present;
+   * otherwise `totalBytes` and `percent` stay `null` while `transferredBytes` still increases.
+   */
+  onDownloadProgress?: (event: OpenFetchProgressEvent) => void;
+  /**
+   * Node.js (Undici): forwarded to `fetch` when the runtime supports it (Undici `dispatcher` option).
+   * Use for custom agents, proxies, or HTTP/2 — e.g. `new Agent({ allowH2: true })` from `undici`.
+   * When set, it takes precedence over {@link allowH2}.
+   */
+  dispatcher?: unknown;
+  /**
+   * Node.js: shorthand for Undici `new Agent({ allowH2: true })` passed as `fetch(..., { dispatcher })`.
+   * Requires the `undici` package to be installed (optional peer). Ignored when {@link dispatcher} is set.
+   * No-op / may be ignored on runtimes whose `fetch` does not accept `dispatcher` (e.g. browsers).
+   */
+  allowH2?: boolean;
 } & Partial<
   Pick<
     RequestInit,

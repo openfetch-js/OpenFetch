@@ -93,6 +93,7 @@ export type {
   OpenFetchDebugEvent,
   OpenFetchInterceptors,
   OpenFetchMemoryCacheRequestOptions,
+  OpenFetchProgressEvent,
   OpenFetchResponse,
   OpenFetchRetryOptions,
   RequestConfig,

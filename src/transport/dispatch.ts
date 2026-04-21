@@ -1,6 +1,10 @@
 import { OpenFetchError } from "../domain/error.js";
 import { SchemaValidationError } from "../domain/schemaValidationError.js";
-import type { OpenFetchConfig, OpenFetchResponse } from "../domain/types.js";
+import type {
+  OpenFetchConfig,
+  OpenFetchProgressEvent,
+  OpenFetchResponse,
+} from "../domain/types.js";
 import { validateJsonWithStandardSchema } from "../domain/validateJsonSchema.js";
 import { assertSafeHttpUrl } from "../shared/assertSafeHttpUrl.js";
 import { buildURL } from "../shared/buildURL.js";
@@ -14,7 +18,14 @@ import {
   redactUrlForDebug,
 } from "../shared/openFetchDebug.js";
 import { mergeAbortSignals } from "../shared/mergeAbortSignals.js";
+import {
+  parsePositiveContentLength,
+  progressFromCounts,
+  wrapBodyForUploadProgress,
+  wrapReadableStreamWithDownloadProgress,
+} from "../shared/progress.js";
 import { headersToRecord } from "../shared/responseHeaders.js";
+import { resolveFetchDispatcher } from "../shared/undiciDispatcher.js";
 
 const defaultValidateStatus = (status: number): boolean =>
   status >= 200 && status < 300;
@@ -63,6 +74,18 @@ function normalizeHeaders(h: Record<string, string>): Record<string, string> {
   return out;
 }
 
+function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+  let len = 0;
+  for (const c of chunks) len += c.byteLength;
+  const out = new Uint8Array(len);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.byteLength;
+  }
+  return out;
+}
+
 async function parseBody(
   res: Response,
   responseType: OpenFetchConfig["responseType"]
@@ -94,6 +117,82 @@ async function parseBody(
     }
   }
   return res.text();
+}
+
+async function parseBodyWithDownloadProgress(
+  res: Response,
+  responseType: OpenFetchConfig["responseType"],
+  totalBytes: number | null,
+  onDownloadProgress: (event: OpenFetchProgressEvent) => void
+): Promise<unknown> {
+  if (responseType === "stream") {
+    if (!res.body) {
+      onDownloadProgress(progressFromCounts(0, totalBytes));
+      return res.body;
+    }
+    onDownloadProgress(progressFromCounts(0, totalBytes));
+    return wrapReadableStreamWithDownloadProgress(
+      res.body,
+      totalBytes,
+      onDownloadProgress
+    );
+  }
+
+  onDownloadProgress(progressFromCounts(0, totalBytes));
+
+  if (!res.body) {
+    return parseBody(res, responseType);
+  }
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let transferred = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    transferred += value.byteLength;
+    chunks.push(value);
+    onDownloadProgress(progressFromCounts(transferred, totalBytes));
+  }
+
+  const bytes = concatUint8Arrays(chunks);
+
+  if (responseType === "arraybuffer") {
+    return bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength
+    );
+  }
+  if (responseType === "blob") {
+    const buf = bytes.buffer as ArrayBuffer;
+    return new Blob([
+      buf.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    ]);
+  }
+  if (responseType === "text") return new TextDecoder().decode(bytes);
+
+  if (responseType === "json") {
+    const t = new TextDecoder().decode(bytes);
+    if (!t.trim()) return null;
+    try {
+      return JSON.parse(t) as unknown;
+    } catch {
+      return t;
+    }
+  }
+
+  const ct = res.headers.get("content-type");
+  const asJson = ct?.includes("application/json") ?? false;
+  if (asJson) {
+    const t = new TextDecoder().decode(bytes);
+    if (!t.trim()) return null;
+    try {
+      return JSON.parse(t) as unknown;
+    } catch {
+      return t;
+    }
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 export type DispatchConfig = OpenFetchConfig & { url: string | URL };
@@ -140,6 +239,17 @@ export async function dispatch(
     body = JSON.stringify(body);
   }
 
+  if (
+    body !== undefined &&
+    body !== null &&
+    config.onUploadProgress != null
+  ) {
+    body = wrapBodyForUploadProgress(
+      body as BodyInit,
+      config.onUploadProgress
+    );
+  }
+
   const credentials =
     config.withCredentials === true
       ? "include"
@@ -168,8 +278,9 @@ export async function dispatch(
   });
 
   try {
+    const dispatcher = await resolveFetchDispatcher(config);
     const tFetch = monotonicNowMs();
-    const res = await fetch(urlString, {
+    const fetchInit: RequestInit & { dispatcher?: unknown; duplex?: "half" } = {
       method: (config.method ?? "GET").toUpperCase(),
       headers,
       body: body === undefined ? undefined : body,
@@ -182,7 +293,20 @@ export async function dispatch(
       redirect: config.redirect,
       referrer: config.referrer,
       referrerPolicy: config.referrerPolicy,
-    });
+    };
+    if (
+      body !== undefined &&
+      body !== null &&
+      typeof ReadableStream !== "undefined" &&
+      body instanceof ReadableStream
+    ) {
+      // Node (Undici) requires `duplex` when `body` is a stream (e.g. upload progress wrapping).
+      fetchInit.duplex = "half";
+    }
+    if (dispatcher != null) {
+      fetchInit.dispatcher = dispatcher;
+    }
+    const res = await fetch(urlString, fetchInit);
 
     const fetchDurationMs = Math.round(monotonicNowMs() - tFetch);
     const contentLength = res.headers.get("content-length");
@@ -195,10 +319,35 @@ export async function dispatch(
     });
 
     const headerRecord = headersToRecord(res.headers);
+    const downloadTotalBytes = parsePositiveContentLength(
+      res.headers.get("content-length")
+    );
 
     if (config.rawResponse === true) {
+      let responseForClient: Response = res;
+      if (config.onDownloadProgress != null) {
+        if (res.body) {
+          config.onDownloadProgress(progressFromCounts(0, downloadTotalBytes));
+          responseForClient = new Response(
+            wrapReadableStreamWithDownloadProgress(
+              res.body,
+              downloadTotalBytes,
+              config.onDownloadProgress
+            ),
+            {
+              status: res.status,
+              statusText: res.statusText,
+              headers: res.headers,
+            }
+          );
+        } else {
+          config.onDownloadProgress(
+            progressFromCounts(0, downloadTotalBytes)
+          );
+        }
+      }
       const openResponse: OpenFetchResponse<Response> = {
-        data: res,
+        data: responseForClient,
         status: res.status,
         statusText: res.statusText,
         headers: headerRecord,
@@ -222,7 +371,15 @@ export async function dispatch(
 
     let parsed: unknown;
     try {
-      parsed = await parseBody(res, config.responseType);
+      parsed =
+        config.onDownloadProgress != null
+          ? await parseBodyWithDownloadProgress(
+              res,
+              config.responseType,
+              downloadTotalBytes,
+              config.onDownloadProgress
+            )
+          : await parseBody(res, config.responseType);
       emitOpenFetchDebug(config, "parse", {
         attempt,
         ok: true,
