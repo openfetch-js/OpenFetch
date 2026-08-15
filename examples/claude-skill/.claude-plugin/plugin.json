@@ -1,8 +1,0 @@
-{
-  "name": "example-skill-plugin",
-  "description": "TEMPLATE ONLY under examples/claude-skill — copy layout for a new Claude Code plugin; not listed in marketplace.json.",
-  "version": "0.0.0",
-  "author": {
-    "name": "Your name"
-  }
-}

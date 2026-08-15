@@ -31,7 +31,8 @@ openFetch/
 │   ├── plugins/                 # Optional behaviors (retry, timeout, debug, …)
 │   └── sugar/fluent.ts          # Fluent chaining API
 ├── dist/                        # Compiled output (from `npm run build`)
-├── examples/                    # Copy-paste samples (not published logic)
+├── examples/                    # Library usage samples (not published logic)
+├── skills/                      # Agent skill / Claude plugin templates
 ├── security-tests/            # `npm run test:security`
 ├── README.md
 ├── CONTRIBUTING.md

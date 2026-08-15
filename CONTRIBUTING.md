@@ -39,7 +39,7 @@ Use **kebab-case** after the prefix. Keep the slug short but specific enough tha
 1. **Fork** this repository and create a branch from `main` using the [branch naming](#branch-naming) rules above.
 2. **Implement** in `src/`. Match existing formatting and naming.
 3. **Build** locally: `npm run build` (no TypeScript errors).
-4. **Document** user-visible behavior in `README.md` and, if structural, in `docs/PROJECT_FLOW.md`.
+4. **Document** user-visible behavior in `README.md` and, if structural, in `docs/PROJECT_FLOW.md`. Copy-paste usage belongs in `examples/`; agent skill templates belong in `skills/`.
 5. **Open a pull request** into `main` with:
    - A clear title and description.
    - What changed and why.
@@ -52,10 +52,11 @@ From a clone of your fork:
 ```bash
 npm install
 npm run build
+npm run test:unit
 npm run test:security
 ```
 
-`npm run test:security` runs `security-tests/`. The TypeScript compile step is the gate for every change.
+CI on GitHub Actions runs unit/conformance/security across Node versions, plus Playwright browser tests (Chromium, Firefox, WebKit) on Ubuntu. Locally, `npm run test:browser` needs Playwright browsers installed once via `npx playwright install` (or `npx playwright install --with-deps` on Linux).
 
 ### Commit messages
 

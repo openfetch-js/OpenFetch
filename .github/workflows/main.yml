@@ -6,8 +6,8 @@ on:
 
 jobs:
   test:
-    name: Node.js ${{ matrix.node-version }}
-    runs-on: macos-latest
+    name: Unit (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -20,7 +20,31 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
       - run: npm ci
-      - name: Install Playwright Browsers
+      - run: npm run test:unit
+      - run: npm run test:security
+
+  browser:
+    name: Browser (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright browsers + OS deps
         run: npx playwright install --with-deps
-      - run: npm test
+      - name: Run browser tests
+        run: npm run test:browser
+        env:
+          CI: true

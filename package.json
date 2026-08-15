@@ -33,9 +33,10 @@
     "build": "tsc",
     "prepublishOnly": "npm run build",
     "test:security": "npm run build && node security-tests/run.mjs",
-    "test:unit": "npm run build && node --test test/*.test.mjs",
+    "test:unit": "npm run build && node --test test/*.test.mjs test/conformance/*.test.mjs",
+    "test:conformance": "npm run build && node --test test/conformance/*.test.mjs",
     "test:browser": "npm run build && ava test/browser.ts",
-    "test": "npm run build && node --test test/*.test.mjs && ava test/browser.ts"
+    "test": "npm run build && node --test test/*.test.mjs test/conformance/*.test.mjs && ava test/browser.ts"
   },
   "engines": {
     "node": ">=18.0.0"

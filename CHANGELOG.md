@@ -23,8 +23,9 @@ For a feature matrix, examples, and execution order (middleware vs retry vs inte
 
 ## [Unreleased]
 
-### Changed (security defaults)
+### Changed
 
+- **Examples** — `examples/` is library usage samples (`quick-start`, interceptors, plugins, fluent, cache, errors, RSC). The Claude skill plugin template moved to [`skills/claude-skill`](./skills/claude-skill).
 - **`OpenFetchError.toShape()` / `toJSON()`** — Response **`data`** and **`headers`** are omitted unless you pass `includeResponseData: true` / `includeResponseHeaders: true`.
 - **`createCacheMiddleware`** — Cache keys **always** fold `authorization` and `cookie` unless `varyHeaderNames` is explicitly `[]`. Extra `varyHeaderNames` entries are merged with those two. The one-time `console.warn` now applies only when `varyHeaderNames: []` is explicit with auth/cookie and no custom `key`.
 

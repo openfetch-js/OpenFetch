@@ -61,7 +61,7 @@ At repo root, **`.claude-plugin/marketplace.json`** lists plugins with a relativ
 }
 ```
 
-For this repo, the shipped plugin is **`./openfetchskill`** (not `./examples/claude-skill`).
+For this repo, the shipped plugin is **`./openfetchskill`** (not `./skills/claude-skill`).
 
 ## Files in this template
 
@@ -74,4 +74,5 @@ For this repo, the shipped plugin is **`./openfetchskill`** (not `./examples/cla
 
 - [Claude Code — plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)
 - Published plugin repo: [openfetch-js/openFetchSkill](https://github.com/openfetch-js/openFetchSkill)
-- Examples index in this monorepo: [examples/README.md](https://github.com/openfetch-js/OpenFetch/blob/main/examples/README.md)
+- Agent skills index: [skills/README.md](https://github.com/openfetch-js/OpenFetch/blob/main/skills/README.md)
+- Library usage examples (separate folder): [examples/README.md](https://github.com/openfetch-js/OpenFetch/blob/main/examples/README.md)
